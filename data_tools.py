@@ -176,8 +176,8 @@ def plot_trajectory_spacetime_diagram(trajectory_data, meta_data):
             continue
 
         # Create LineCollection
-        # Speed typically 0-35m/s (0-120km/h), use jet colormap
-        lc = LineCollection(lines, array=np.array(speeds), cmap="jet", linewidths=1.0)
+        # Speed typically 0-35m/s (0-120km/h), use jet_r colormap
+        lc = LineCollection(lines, array=np.array(speeds), cmap="jet_r", linewidths=1.0)
         lc.set_clim(vmin=0, vmax=35) # Set speed color range 0-35 m/s
         ax.add_collection(lc)
         
@@ -194,9 +194,9 @@ def plot_trajectory_spacetime_diagram(trajectory_data, meta_data):
             ax.legend(loc='upper right')
             
         ax.autoscale()
-        ax.set_title(f'Lane {target_lane_id} Time-Space Diagram')
+        ax.set_title(f'Lane {target_lane_id} Space-Time Diagram')
         ax.set_xlabel("Time [s]")
-        ax.set_ylabel("Car Head Location (Frenet S) [m]")
+        ax.set_ylabel("Location [m]")
         
         # Save figure
         save_path = os.path.join(save_folder, f'lane_{target_lane_id}_spacetime.png')
@@ -242,27 +242,38 @@ def analysis_movement_data(trajectory_data, meta_data):
     undefined_filtered_count = 0
 
     for vid, track in trajectory_data.items():
-        # lane_sequence might be a list or numpy array
-        lane_seq = track.get('lane_sequence')
-        
-        if lane_seq is None or len(lane_seq) == 0:
+        lane_ids = track.get('lane_id')
+        if lane_ids is None or len(lane_ids) == 0:
             continue
             
-        # Get start and end lane
-        try:
-            start_lane = int(lane_seq[0])
-            end_lane = int(lane_seq[-1])
-        except Exception:
+        # Deduplicate lane_id while preserving order to get lane_sequence
+        lane_seq = []
+        for lid in lane_ids:
+            if not lane_seq or lane_seq[-1] != lid:
+                lane_seq.append(lid)
+                
+        if len(lane_seq) == 0:
             continue
             
-        # Create OD Key
-        od_key = f"{start_lane}-{end_lane}"
+        # Check if any key from lane_sequence_to_movement_map is contained in lane_sequence
+        movement_name = "Undefined"
+        matched_key = None
         
-        # Determine movement name
-        if od_key in lane_sequence_to_movement_map:
-            movement_name = lane_sequence_to_movement_map[od_key]
+        for key, name in lane_sequence_to_movement_map.items():
+            # Convert key "20-30" to list [20, 30]
+            key_list = [int(x) for x in key.split('-')]
+            n = len(key_list)
+            
+            # Check if key_list is a sublist of lane_seq
+            if any(lane_seq[i:i+n] == key_list for i in range(len(lane_seq) - n + 1)):
+                movement_name = name
+                matched_key = key
+                break
+                
+        if matched_key:
+            od_key = matched_key
         else:
-            movement_name = "Undefined"
+            od_key = f"{lane_seq[0]}-{lane_seq[-1]}"
             
         # Check if we need to filter (only for Undefined movements)
         if movement_name == "Undefined":
@@ -303,8 +314,7 @@ def analysis_movement_data(trajectory_data, meta_data):
     for od, count in sorted(od_counts.items(), key=lambda x: x[1], reverse=True)[:10]:
         mapped_name = lane_sequence_to_movement_map.get(od, "Undefined")
         print(f"  - {od} ({mapped_name}): {count}")
-        if mapped_name == "Undefined":
-             print(f"    -> Vehicle IDs: {od_vehicles.get(od, [])}")
+        
 
     return movement_counts
 
@@ -313,11 +323,21 @@ def main():
     parser = argparse.ArgumentParser(
         description="Plot trajectory spacetime diagram from Parquet file."
     )
-    parser.add_argument('--parquet',default='data/Hurong_20220617_B3_F1/Hurong_20220617_B3_F1.parquet', help="Path to the Parquet file")
+    parser.add_argument('--parquet',default='data/Hurong_20220617_B3_F1_demo.parquet', help="Path to the Parquet file")
     args = parser.parse_args()
     trajectory_data, meta_data = read_parquet(args.parquet)
-    # if trajectory_data and meta_data:
-    #     plot_trajectory_spacetime_diagram(trajectory_data, meta_data)
-    analysis_movement_data(trajectory_data, meta_data)
+    
+    if trajectory_data and meta_data:
+        lane_map = meta_data.get('lane_sequence_to_movement_map')
+        
+        if not lane_map:
+            # freeway
+            print("\n[Scenario] Detected Freeway (lane_sequence_to_movement_map is empty or missing)")
+            plot_trajectory_spacetime_diagram(trajectory_data, meta_data)
+        else:
+            # intersection
+            print("\n[Scenario] Detected Intersection (lane_sequence_to_movement_map is present)")
+            analysis_movement_data(trajectory_data, meta_data)
+
 if __name__ == "__main__":
     main()
