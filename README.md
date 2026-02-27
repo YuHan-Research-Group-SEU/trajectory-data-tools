@@ -1,6 +1,6 @@
 # Trajectory Data Tools
 
-This repository contains tools for processing, exporting, and analyzing vehicle trajectory data. The tools support converting proprietary `.tppkl` data into standard CSV and Parquet formats, updating metadata, and visualizing spacetime diagrams.
+This repository provides a collection of tools for processing, exporting, analyzing, and visualizing vehicle trajectory data.
 
 ## Installation
 
